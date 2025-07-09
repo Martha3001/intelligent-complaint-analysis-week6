@@ -1,0 +1,91 @@
+
+import numpy as np
+import pickle
+from sentence_transformers import SentenceTransformer
+import faiss
+import pandas as pd
+import numpy as np
+import faiss
+import os
+import pickle
+from tqdm import tqdm
+from sentence_transformers import SentenceTransformer
+
+def load_faiss_index(index_path):
+    return faiss.read_index(index_path)
+
+def load_metadata(metadata_path):
+    with open(metadata_path, 'rb') as f:
+        return pickle.load(f)
+    
+def prepare_chunks_and_metadata(df):
+    """
+    Prepare text chunks and metadata from a DataFrame.
+    Splits the text in the specified column into chunks of a given size.
+    Returns a list of text chunks and their corresponding metadata.
+    """
+    all_chunks = []
+    metadata = []
+    for idx, row in df.iterrows():
+        complaint_id = row.get('Complaint ID', idx)  # fallback to index if no ID
+        product = row.get('Product', None)
+        for chunk in row['narrative_chunks']:
+            all_chunks.append(chunk)
+            metadata.append({'complaint_id': complaint_id, 'product': product})
+
+    return all_chunks, metadata
+
+def load_embedding_model(model_name='all-MiniLM-L6-v2'):
+    """
+    Load the SentenceTransformer model for embedding text.
+    Default is 'all-MiniLM-L6-v2', which is a lightweight model suitable for many tasks.
+    """
+    return SentenceTransformer(model_name)
+
+def embed_chunks(chunks, embedding_model):
+    """
+    Embed a list of text chunks using the provided embedding model.
+    Returns a numpy array of embeddings.
+    """
+    embeddings = embedding_model.encode(chunks, convert_to_numpy=True)
+    return embeddings
+
+def initialize_faiss_index(embeddings, index_path='faiss_index.index', metadata_path='metadata.pkl'):
+    """
+    Initialize a FAISS index with the provided text chunks.
+    Saves the index and metadata to specified paths.
+    """
+    # Create a FAISS index
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)  # L2 distance index
+    index.add(embeddings)  # Add embeddings to the index
+    
+    return index
+
+def save_faiss_index(index, metadata, index_path, metadata_path):
+    """
+    Save the FAISS index to the specified path.
+    """
+    faiss.write_index(index, index_path)
+
+    with open(metadata_path, 'wb') as f:
+        pickle.dump(metadata, f)
+
+def retrieve_similar_complaints(question, embedding_model, index, metadata_list, all_chunks, k=5):
+    """
+    Embeds the user's question and retrieves the top-k most similar complaint chunks from the FAISS vector store.
+    Returns a list of (chunk, metadata, distance) tuples.
+    """
+    # Embed the question
+    question_embedding = embedding_model.encode([question])[0]
+    question_embedding = np.array([question_embedding])
+    # Search the FAISS index
+    distances, indices = index.search(question_embedding, k)
+    # Retrieve results
+    results = []
+    for i, idx in enumerate(indices[0]):
+        chunk_text = all_chunks[idx]
+        meta = metadata_list[idx]
+        dist = distances[0][i]
+        results.append((chunk_text, meta, dist))
+    return results
