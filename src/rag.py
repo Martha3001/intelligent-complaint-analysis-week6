@@ -1,4 +1,4 @@
-
+import ast
 import numpy as np
 import pickle
 from sentence_transformers import SentenceTransformer
@@ -17,7 +17,7 @@ def load_faiss_index(index_path):
 def load_metadata(metadata_path):
     with open(metadata_path, 'rb') as f:
         return pickle.load(f)
-    
+
 def prepare_chunks_and_metadata(df):
     """
     Prepare text chunks and metadata from a DataFrame.
@@ -29,7 +29,14 @@ def prepare_chunks_and_metadata(df):
     for idx, row in df.iterrows():
         complaint_id = row.get('Complaint ID', idx)  # fallback to index if no ID
         product = row.get('Product', None)
-        for chunk in row['narrative_chunks']:
+        # Safely evaluate the string representation of the list
+        try:
+            chunks = ast.literal_eval(row['narrative_chunks'])
+        except (ValueError, SyntaxError):
+            # Handle cases where the string is not a valid list representation
+            chunks = [] # or handle the error as appropriate
+
+        for chunk in chunks:
             all_chunks.append(chunk)
             metadata.append({'complaint_id': complaint_id, 'product': product})
 
