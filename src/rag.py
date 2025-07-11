@@ -1,15 +1,11 @@
 import ast
-import numpy as np
-import pickle
-from sentence_transformers import SentenceTransformer
-import faiss
-import pandas as pd
-import numpy as np
-import faiss
 import os
+import numpy as np
 import pickle
-from tqdm import tqdm
+import faiss
 from sentence_transformers import SentenceTransformer
+from transformers import pipeline
+from huggingface_hub import InferenceClient
 
 def load_faiss_index(index_path):
     return faiss.read_index(index_path)
@@ -96,3 +92,44 @@ def retrieve_similar_complaints(question, embedding_model, index, metadata_list,
         dist = distances[0][i]
         results.append((chunk_text, meta, dist))
     return results
+
+def generate_llm_answer(question, retrieved_chunks, prompt_template, model_name="mistralai/Mistral-7B-Instruct-v0.2"):
+    """
+    Combines the prompt, user question, and retrieved chunks, sends to LLM, and returns the generated response.
+    """
+    # Combine retrieved chunks into context
+    context = "\n".join(retrieved_chunks)
+    prompt = prompt_template.format(context=context, question=question)
+    
+    # Load the LLM pipeline (text-generation)
+    generator = pipeline("text-generation", model=model_name, max_new_tokens=256)
+    
+    # Generate response
+    response = generator(prompt, return_full_text=False)
+    # Extract and return the generated answer
+    return response[0]['generated_text'] if response else ""
+
+def generate_llama_llm_answer(question, retrieved_chunks, prompt_template, model_name="meta-llama/Meta-Llama-3.1-8B-Instruct", api_key=None):
+    """
+    Uses Hugging Face InferenceClient with Fireworks provider to generate an answer using Llama-3.
+    """
+    context = "\n".join(retrieved_chunks)
+    prompt = prompt_template.format(context=context, question=question)
+    
+    # You can pass api_key directly or use environment variable
+    client = InferenceClient(
+        provider="fireworks-ai",
+        api_key=api_key or os.environ.get("HF_TOKEN")
+    )
+    
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+    )
+    # Return the generated message text
+    return completion.choices[0].message.content if completion and completion.choices else ""
